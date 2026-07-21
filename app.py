@@ -1,4 +1,4 @@
-# Forzar reinicio y actualización
+# Actualización con envío de imagen primero
 import os
 import json
 import requests
@@ -24,7 +24,7 @@ def webhook():
             return "OK", 200
 
         try:
-            # Petición a la API de Groq con el modelo activo llama-3.1-8b-instant
+            # Petición a Groq pidiendo también la URL de la carátula/imagen del juego
             url_groq = "https://api.groq.com/openai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {GROQ_KEY}",
@@ -36,7 +36,7 @@ def webhook():
                 "messages": [
                     {
                         "role": "system", 
-                        "content": "Eres un asistente experto en analizar ofertas de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original sin símbolos, o '0'), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora links de youtube o reviews), store (tienda deducida), description (detalle breve o cupón, o vacío si no hay)."
+                        "content": "Eres un asistente experto en analizar ofertas de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original sin símbolos, o '0'), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (detalle breve o cupón, o vacío si no hay)."
                     },
                     {
                         "role": "user", 
@@ -51,7 +51,7 @@ def webhook():
             if groq_req.status_code != 200:
                 raise Exception(f"Error HTTP Groq: {groq_req.text}")
             
-            datos_groq = groq_req.json()
+            datos_groq = groq_groq.json()
             respuesta_ia = datos_groq['choices'][0]['message']['content'].strip()
             
             datos = json.loads(respuesta_ia)
@@ -61,13 +61,14 @@ def webhook():
             price = datos.get("price", "0")
             link = datos.get("link", "")
             store = datos.get("store", "Tienda")
+            image_url = datos.get("image_url", "")
             desc = datos.get("description", "")
 
             # Inyección automática de link de afiliado para Instant Gaming
             if "instant-gaming.com" in link and "igr=" not in link:
                 link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
 
-            # Construimos el mensaje de Telegram
+            # Construimos el texto del mensaje
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if desc:
                 mensaje_final += f"{desc}\n\n"
@@ -78,7 +79,17 @@ def webhook():
             mensaje_final += f"✅ **Save On Games:** {price}€\n\n"
             mensaje_final += f"🔗 [Comprar en {store}]({link})"
 
-            # Publicar en el canal privado
+            # Si la IA encontró una imagen del juego, la enviamos primero al canal
+            if image_url and image_url.startswith("http"):
+                requests.post(
+                    f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+                    json={
+                        "chat_id": CHANNEL_ID,
+                        "photo": image_url
+                    }
+                )
+
+            # A continuación, enviamos el texto de la oferta
             res = requests.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
                 json={
@@ -91,7 +102,7 @@ def webhook():
 
             if res.status_code == 200:
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                              json={"chat_id": chat_id, "text": "✅ **¡Procesado con Groq y publicado!**", "parse_mode": "Markdown"})
+                              json={"chat_id": chat_id, "text": "✅ **¡Imagen y oferta publicadas con éxito!**", "parse_mode": "Markdown"})
             else:
                 err = res.json().get("description", "Error desconocido")
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
