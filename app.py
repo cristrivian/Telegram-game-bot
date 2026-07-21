@@ -23,7 +23,7 @@ def webhook():
             return "OK", 200
 
         try:
-            # Petición directa a la API de Gemini usando gemini-pro
+            # Petición directa usando la versión v1 y gemini-1.5-flash
             prompt = f"""
             Analiza el siguiente mensaje de oferta y extrae la información. 
             Devuelve ÚNICAMENTE un objeto JSON válido (sin formato markdown, sin comillas invertidas) con estas claves exactas:
@@ -38,7 +38,7 @@ def webhook():
             {text}
             """
             
-            url_gemini = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_KEY}"
+            url_gemini = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
             gemini_payload = {
                 "contents": [{"parts": [{"text": prompt}]}]
             }
