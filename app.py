@@ -1,4 +1,4 @@
-# Actualización con envío de imagen primero
+# Corrección de variable
 import os
 import json
 import requests
@@ -24,7 +24,6 @@ def webhook():
             return "OK", 200
 
         try:
-            # Petición a Groq pidiendo también la URL de la carátula/imagen del juego
             url_groq = "https://api.groq.com/openai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {GROQ_KEY}",
@@ -51,7 +50,7 @@ def webhook():
             if groq_req.status_code != 200:
                 raise Exception(f"Error HTTP Groq: {groq_req.text}")
             
-            datos_groq = groq_groq.json()
+            datos_groq = groq_req.json()
             respuesta_ia = datos_groq['choices'][0]['message']['content'].strip()
             
             datos = json.loads(respuesta_ia)
