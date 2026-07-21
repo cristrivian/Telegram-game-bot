@@ -28,7 +28,7 @@ def webhook():
             return "OK", 200
 
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-pro')
             prompt = f"""
             Analiza el siguiente mensaje de oferta de Telegram y extrae la información. 
             Devuelve ÚNICAMENTE un objeto JSON válido (sin etiquetas markdown, sin comillas invertidas) con estas claves exactas:
