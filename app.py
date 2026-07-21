@@ -1,18 +1,13 @@
 import os
 import json
 import requests
-import google.generativeai as genai
 from flask import Flask, request
 
 app = Flask(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = "-1004359686735"
-
-# Configurar la API de la IA (Gemini)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
 
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
@@ -28,24 +23,38 @@ def webhook():
             return "OK", 200
 
         try:
-            model = genai.GenerativeModel('gemini-pro')
+            # 1. Petición DIRECTA a la API de Gemini (sin librerías conflictivas)
             prompt = f"""
-            Analiza el siguiente mensaje de oferta de Telegram y extrae la información. 
-            Devuelve ÚNICAMENTE un objeto JSON válido (sin etiquetas markdown, sin comillas invertidas) con estas claves exactas:
-            - "title": Nombre del producto o juego de forma limpia.
-            - "pvp": El precio original sin símbolos (ej: 372). Si no hay, pon "0".
-            - "price": El precio de oferta sin símbolos (ej: 336).
-            - "link": El enlace de compra principal (ignora enlaces a YouTube o reviews).
-            - "store": Nombre de la tienda deducido del enlace (ej: AliExpress, Amazon, Instant Gaming, etc.).
-            - "description": Extrae cualquier detalle importante muy breve, como "Envío desde España" o "Cupón: XXXX". Si no hay nada, déjalo vacío.
+            Analiza el siguiente mensaje de oferta y extrae la información. 
+            Devuelve ÚNICAMENTE un objeto JSON válido (sin formato markdown) con estas claves:
+            - "title": Nombre del producto.
+            - "pvp": Precio original sin símbolos. Si no hay, pon "0".
+            - "price": Precio de oferta sin símbolos.
+            - "link": Enlace de compra principal (ignora reviews/YouTube).
+            - "store": Nombre de la tienda (AliExpress, Amazon, etc.).
+            - "description": Cualquier detalle clave muy breve (envío, cupón). Vacío si no hay.
             
-            Mensaje a analizar:
+            Mensaje:
             {text}
             """
             
-            response = model.generate_content(prompt)
-            respuesta_ia = response.text.strip()
+            url_gemini = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+            gemini_payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
             
+            gemini_req = requests.post(url_gemini, json=gemini_payload)
+            
+            if gemini_req.status_code != 200:
+                raise Exception(f"Error HTTP API: {gemini_req.text}")
+            
+            datos_gemini = gemini_req.json()
+            try:
+                respuesta_ia = datos_gemini['candidates'][0]['content']['parts'][0]['text'].strip()
+            except KeyError:
+                raise Exception(f"Gemini no devolvió texto válido: {datos_gemini}")
+            
+            # Limpieza del texto por si la IA añade etiquetas Markdown
             if respuesta_ia.startswith("```json"):
                 respuesta_ia = respuesta_ia[7:-3]
             elif respuesta_ia.startswith("```"):
@@ -60,10 +69,11 @@ def webhook():
             store = datos.get("store", "Tienda")
             desc = datos.get("description", "")
 
-            # Automatización del enlace de afiliado
+            # Inyección de link de afiliado
             if "instant-gaming.com" in link and "igr=" not in link:
                 link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
 
+            # 2. Construimos el mensaje de Telegram
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if desc:
                 mensaje_final += f"{desc}\n\n"
@@ -74,6 +84,7 @@ def webhook():
             mensaje_final += f"✅ **Save On Games:** {price}€\n\n"
             mensaje_final += f"🔗 [Comprar en {store}]({link})"
 
+            # 3. Publicar en tu canal privado
             res = requests.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
                 json={
@@ -90,12 +101,12 @@ def webhook():
             else:
                 err = res.json().get("description", "Error desconocido")
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                              json={"chat_id": chat_id, "text": f"❌ Error de envío: `{err}`", "parse_mode": "Markdown"})
+                              json={"chat_id": chat_id, "text": f"❌ Error de envío al canal: `{err}`", "parse_mode": "Markdown"})
 
         except Exception as e:
             requests.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": f"⚠️ **Error procesando con la IA:**\n`{str(e)}`", "parse_mode": "Markdown"}
+                json={"chat_id": chat_id, "text": f"⚠️ **Error en el proceso:**\n`{str(e)}`", "parse_mode": "Markdown"}
             )
 
     return "OK", 200
