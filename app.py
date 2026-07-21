@@ -1,4 +1,4 @@
-# Corrección de variable
+# Forzar compilación limpia 2.0
 import os
 import json
 import requests
