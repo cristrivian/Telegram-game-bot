@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Extracción directa de imagen Amazon por ASIN
+# Forzar compilación limpia - Multitienda: Amazon, AliExpress y Steam
 import os
 import json
 import re
@@ -31,26 +31,59 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
     return requests.post(f"{TELEGRAM_API}/sendPhoto", json=payload)
 
 
+# ==========================================
+# BLOQUE 1: FUNCIONES AMAZON
+# ==========================================
 def obtener_imagen_amazon(link):
-    """Obtiene la imagen de alta resolución de Amazon a través de su CDN usando el ASIN sin ser bloqueado."""
+    """Obtiene la imagen de alta resolución de Amazon a través de su CDN usando el ASIN."""
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        
-        # Si es un enlace acortado (amzn.to, amzn.eu), obtenemos la URL final redireccionada
         final_url = link
         if "amzn." in link or "t.co" in link:
             res = requests.head(link, headers=headers, allow_redirects=True, timeout=5)
             final_url = res.url
 
-        # Buscar el código ASIN de 10 caracteres en la URL de Amazon
         asin_match = re.search(r'/(?:dp|gp/product|product)/([A-Z0-9]{10})', final_url, re.IGNORECASE)
         if not asin_match:
             asin_match = re.search(r'/([B0-9][A-Z0-9]{9})(?:[/?#]|$)', final_url, re.IGNORECASE)
 
         if asin_match:
             asin = asin_match.group(1).upper()
-            # CDN oficial de Amazon para imágenes directas en máxima resolución
             return f"https://images-na.ssl-images-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
+    except Exception:
+        pass
+    return None
+
+
+# ==========================================
+# BLOQUE 2: FUNCIONES ALIEXPRESS
+# ==========================================
+def obtener_imagen_aliexpress(link):
+    """Sigue el enlace de AliExpress y extrae la imagen principal del producto (og:image)."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        # Hacemos GET para seguir redirecciones de enlaces cortos (ej. a.aliexpress.com)
+        res = requests.get(link, headers=headers, allow_redirects=True, timeout=7)
+        
+        m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', res.text, re.IGNORECASE)
+        if m_og:
+            return m_og.group(1)
+    except Exception:
+        pass
+    return None
+
+
+# ==========================================
+# BLOQUE 3: FUNCIONES STEAM
+# ==========================================
+def obtener_imagen_steam(link):
+    """Extrae el ID del juego de la URL de Steam y obtiene la carátula oficial."""
+    try:
+        m_steam = re.search(r'/app/(\d+)', link)
+        if m_steam:
+            app_id = m_steam.group(1)
+            # URL oficial de la CDN de Steam para carátulas horizontales
+            return f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg"
     except Exception:
         pass
     return None
@@ -109,19 +142,37 @@ def webhook():
             tagline = datos.get("tagline", "")
             game_desc = datos.get("game_description", "")
 
-            # Intento de extracción de imagen por CDN si el enlace es de Amazon
+            # ==========================================
+            # ENRUTADOR DE TIENDAS (Detección de Bloques)
+            # ==========================================
             if "amazon" in link or "amzn" in link:
                 img_amazon = obtener_imagen_amazon(link)
                 if img_amazon:
                     image_url = img_amazon
+            
+            elif "aliexpress" in link or "ali." in link:
+                img_ali = obtener_imagen_aliexpress(link)
+                if img_ali:
+                    image_url = img_ali
+                    
+            elif "steampowered" in link or "steam" in link:
+                img_steam = obtener_imagen_steam(link)
+                if img_steam:
+                    image_url = img_steam
 
+            # Inyección automática de link de afiliado para Instant Gaming 
+            # (Lo mantengo oculto internamente como pediste en otros bloques, por si te hace falta)
+            if "instant-gaming.com" in link and "igr=" not in link:
+                link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
+
+            # Formateo de Hashtags
             hashtags_raw = datos.get("hashtags", [])
             if isinstance(hashtags_raw, str):
                 hashtags_raw = hashtags_raw.split()
             hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags_raw if h][:4]
             hashtags_line = " ".join(hashtags)
 
-            # Construcción del texto (sin enlace)
+            # Construcción del texto (Mantenemos la estructura sin enlace visible)
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if tagline:
                 mensaje_final += f"_{tagline}_\n"
@@ -139,7 +190,7 @@ def webhook():
 
             res = None
 
-            # Si tenemos URL de imagen válida, la envía como FOTO con el texto adjunto abajo
+            # Envío a Telegram
             if image_url and image_url.startswith("http"):
                 caption = mensaje_final
                 if len(caption) > 1024:
@@ -147,14 +198,13 @@ def webhook():
 
                 res = send_photo(CHANNEL_ID, image_url, caption=caption)
 
-                # Si falla el envío de la foto, envía como mensaje de texto
                 if res.status_code != 200:
                     res = send_message(CHANNEL_ID, mensaje_final)
             else:
                 res = send_message(CHANNEL_ID, mensaje_final)
 
             if res.status_code == 200:
-                send_message(chat_id, "✅ **¡Procesado con imagen de Amazon y publicado!**")
+                send_message(chat_id, "✅ **¡Procesado y publicado correctamente!**")
             else:
                 err = res.json().get("description", "Error desconocido")
                 send_message(chat_id, f"❌ Error de envío al canal: `{err}`")
