@@ -23,7 +23,7 @@ def webhook():
             return "OK", 200
 
         try:
-            # Petición a la API gratuita y ultrarrápida de Groq
+            # Petición a la API de Groq con el modelo activo llama-3.1-8b-instant
             url_groq = "https://api.groq.com/openai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {GROQ_KEY}",
@@ -31,7 +31,7 @@ def webhook():
             }
             
             payload = {
-                "model": "llama-3.3-70b-specdec",
+                "model": "llama-3.1-8b-instant",
                 "messages": [
                     {
                         "role": "system", 
