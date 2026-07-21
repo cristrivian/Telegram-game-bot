@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Multitienda: Amazon, AliExpress y Steam
+# Forzar compilación limpia - Multitienda: Enlace visible solo para Steam
 import os
 import json
 import re
@@ -62,7 +62,6 @@ def obtener_imagen_aliexpress(link):
     """Sigue el enlace de AliExpress y extrae la imagen principal del producto (og:image)."""
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        # Hacemos GET para seguir redirecciones de enlaces cortos (ej. a.aliexpress.com)
         res = requests.get(link, headers=headers, allow_redirects=True, timeout=7)
         
         m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', res.text, re.IGNORECASE)
@@ -82,7 +81,6 @@ def obtener_imagen_steam(link):
         m_steam = re.search(r'/app/(\d+)', link)
         if m_steam:
             app_id = m_steam.group(1)
-            # URL oficial de la CDN de Steam para carátulas horizontales
             return f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg"
     except Exception:
         pass
@@ -161,7 +159,6 @@ def webhook():
                     image_url = img_steam
 
             # Inyección automática de link de afiliado para Instant Gaming 
-            # (Lo mantengo oculto internamente como pediste en otros bloques, por si te hace falta)
             if "instant-gaming.com" in link and "igr=" not in link:
                 link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
 
@@ -172,7 +169,7 @@ def webhook():
             hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags_raw if h][:4]
             hashtags_line = " ".join(hashtags)
 
-            # Construcción del texto (Mantenemos la estructura sin enlace visible)
+            # Construcción del texto principal
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if tagline:
                 mensaje_final += f"_{tagline}_\n"
@@ -184,6 +181,10 @@ def webhook():
 
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
             mensaje_final += f"✅ **Save On Games:** {price}€"
+
+            # NUEVO: Si la tienda es Steam, añadimos el enlace al final.
+            if "steampowered" in link or "steam" in link:
+                mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
 
             if hashtags_line:
                 mensaje_final += f"\n\n{hashtags_line}"
