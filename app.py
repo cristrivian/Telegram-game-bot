@@ -1,4 +1,4 @@
-# Forzar compilación limpia 2.0
+# Forzar compilación limpia - Precio estimado de lanzamiento
 import os
 import json
 import requests
@@ -35,7 +35,7 @@ def webhook():
                 "messages": [
                     {
                         "role": "system", 
-                        "content": "Eres un asistente experto en analizar ofertas de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original sin símbolos, o '0'), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (detalle breve o cupón, o vacío si no hay)."
+                        "content": "Eres un asistente experto en analizar ofertas de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original: si el texto lo indica, ponlo; si no lo indica, estima y pon el precio original de lanzamiento más probable que tuvo el juego cuando salió al mercado, por ejemplo 59.99 o 69.99 en lugar de 0), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (detalle breve o cupón, o vacío si no hay)."
                     },
                     {
                         "role": "user", 
@@ -56,7 +56,7 @@ def webhook():
             datos = json.loads(respuesta_ia)
             
             title = datos.get("title", "CHOLLO GAMING")
-            pvp = datos.get("pvp", "0")
+            pvp = datos.get("pvp", "69.99")
             price = datos.get("price", "0")
             link = datos.get("link", "")
             store = datos.get("store", "Tienda")
@@ -101,7 +101,7 @@ def webhook():
 
             if res.status_code == 200:
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                              json={"chat_id": chat_id, "text": "✅ **¡Imagen y oferta publicadas con éxito!**", "parse_mode": "Markdown"})
+                              json={"chat_id": chat_id, "text": "✅ **¡Procesado con precio estimado y publicado!**", "parse_mode": "Markdown"})
             else:
                 err = res.json().get("description", "Error desconocido")
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
