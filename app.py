@@ -54,7 +54,7 @@ def webhook():
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Eres un asistente experto en analizar ofertas de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original: si el texto lo indica, ponlo; si no lo indica, estima y pon el precio original de lanzamiento más probable que tuvo el juego cuando salió al mercado, por ejemplo 59.99 o 69.99 en lugar de 0), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (detalle breve o cupón, o vacío si no hay)."
+                        "content": "Eres un asistente experto en analizar ofertas de Telegram sobre videojuegos. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original: si el texto lo indica, ponlo; si no lo indica, estima y pon el precio original de lanzamiento más probable que tuvo el juego cuando salió al mercado, por ejemplo 59.99 o 69.99 en lugar de 0), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (detalle breve o cupón, o vacío si no hay), tagline (un título gancho corto y llamativo relacionado con el juego, en español, máximo 8 palabras, distinto del nombre del juego), game_description (una descripción breve y atractiva de qué trata el juego, en español, máximo 25 palabras), hashtags (un array de exactamente 3 o 4 hashtags en español o inglés relacionados específicamente con ese juego -género, saga, plataforma, etc-, cada uno empezando por # y sin espacios)."
                     },
                     {
                         "role": "user",
@@ -81,6 +81,14 @@ def webhook():
             store = datos.get("store", "Tienda")
             image_url = datos.get("image_url", "")
             desc = datos.get("description", "")
+            tagline = datos.get("tagline", "")
+            game_desc = datos.get("game_description", "")
+
+            hashtags_raw = datos.get("hashtags", [])
+            if isinstance(hashtags_raw, str):
+                hashtags_raw = hashtags_raw.split()
+            hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags_raw if h][:4]
+            hashtags_line = " ".join(hashtags)
 
             # Inyección automática de link de afiliado para Instant Gaming
             if "instant-gaming.com" in link and "igr=" not in link:
@@ -88,14 +96,21 @@ def webhook():
 
             # Construimos el texto del mensaje
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
+            if tagline:
+                mensaje_final += f"_{tagline}_\n"
+            if game_desc:
+                mensaje_final += f"{game_desc}\n"
+            mensaje_final += "\n"
+
             if desc:
                 mensaje_final += f"{desc}\n\n"
-            else:
-                mensaje_final += "\n"
 
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
             mensaje_final += f"✅ **Save On Games:** {price}€\n\n"
             mensaje_final += f"🔗 [Comprar en {store}]({link})"
+
+            if hashtags_line:
+                mensaje_final += f"\n\n{hashtags_line}"
 
             res = None
 
