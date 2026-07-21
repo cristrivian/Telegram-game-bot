@@ -1,6 +1,7 @@
-# Forzar compilación limpia - Imagen adjunta al mensaje de la oferta
+# Forzar compilación limpia - Imagen adjunta al mensaje de la oferta sin enlace
 import os
 import json
+import re
 import requests
 from flask import Flask, request
 
@@ -84,17 +85,38 @@ def webhook():
             tagline = datos.get("tagline", "")
             game_desc = datos.get("game_description", "")
 
+            # NUEVO: Intentar extraer imagen de la web (Amazon u otras) si Groq no la devuelve
+            if (not image_url or not image_url.startswith("http")) and link.startswith("http"):
+                try:
+                    headers_web = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                    r_web = requests.get(link, headers=headers_web, timeout=5)
+                    # Buscamos la etiqueta og:image general
+                    m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', r_web.text, re.IGNORECASE)
+                    if m_og:
+                        image_url = m_og.group(1)
+                    else:
+                        m_og2 = re.search(r'<meta[^>]*content=[\'"](http[^\'"]+)[\'"][^>]*property=[\'"]og:image[\'"]', r_web.text, re.IGNORECASE)
+                        if m_og2:
+                            image_url = m_og2.group(1)
+                        elif "amazon" in link:
+                            # Fallback específico para sacar la foto en alta resolución de Amazon
+                            m_amz = re.search(r'"large":"(https://m\.media-amazon\.com/images/I/[^"]+\.jpg)"', r_web.text)
+                            if m_amz:
+                                image_url = m_amz.group(1)
+                except Exception:
+                    pass
+
             hashtags_raw = datos.get("hashtags", [])
             if isinstance(hashtags_raw, str):
                 hashtags_raw = hashtags_raw.split()
             hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags_raw if h][:4]
             hashtags_line = " ".join(hashtags)
 
-            # Inyección automática de link de afiliado para Instant Gaming
+            # Inyección automática de link de afiliado para Instant Gaming (se queda interno por si lo usas más adelante, aunque no se imprima)
             if "instant-gaming.com" in link and "igr=" not in link:
                 link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
 
-            # Construimos el texto del mensaje
+            # Construimos el texto del mensaje (SIN EL ENLACE AL FINAL)
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if tagline:
                 mensaje_final += f"_{tagline}_\n"
@@ -106,24 +128,21 @@ def webhook():
                 mensaje_final += f"{desc}\n\n"
 
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
-            mensaje_final += f"✅ **Save On Games:** {price}€\n\n"
-            mensaje_final += f"🔗 [Comprar en {store}]({link})"
+            mensaje_final += f"✅ **Save On Games:** {price}€"
 
             if hashtags_line:
                 mensaje_final += f"\n\n{hashtags_line}"
 
             res = None
 
-            # Si la IA encontró una imagen del juego, la mandamos JUNTO con el texto (como caption de la foto)
+            # Si logramos extraer la imagen, se manda como foto con el texto abajo.
             if image_url and image_url.startswith("http"):
-                # Telegram limita el caption de una foto a 1024 caracteres (el texto normal admite 4096)
                 caption = mensaje_final
                 if len(caption) > 1024:
                     caption = caption[:1021] + "..."
 
                 res = send_photo(CHANNEL_ID, image_url, caption=caption)
 
-                # Si Telegram rechaza la foto (URL rota, formato no soportado, etc.) caemos a solo texto
                 if res.status_code != 200:
                     res = send_message(CHANNEL_ID, mensaje_final)
             else:
