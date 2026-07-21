@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Imagen adjunta al mensaje de la oferta sin enlace
+# Forzar compilación limpia - Extracción directa de imagen Amazon por ASIN
 import os
 import json
 import re
@@ -19,7 +19,7 @@ def send_message(chat_id, text, parse_mode="Markdown"):
         "chat_id": chat_id,
         "text": text,
         "parse_mode": parse_mode,
-        "disable_web_page_preview": False,
+        "disable_web_page_preview": True,
     })
 
 
@@ -29,6 +29,31 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
         payload["caption"] = caption
         payload["parse_mode"] = parse_mode
     return requests.post(f"{TELEGRAM_API}/sendPhoto", json=payload)
+
+
+def obtener_imagen_amazon(link):
+    """Obtiene la imagen de alta resolución de Amazon a través de su CDN usando el ASIN sin ser bloqueado."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        
+        # Si es un enlace acortado (amzn.to, amzn.eu), obtenemos la URL final redireccionada
+        final_url = link
+        if "amzn." in link or "t.co" in link:
+            res = requests.head(link, headers=headers, allow_redirects=True, timeout=5)
+            final_url = res.url
+
+        # Buscar el código ASIN de 10 caracteres en la URL de Amazon
+        asin_match = re.search(r'/(?:dp|gp/product|product)/([A-Z0-9]{10})', final_url, re.IGNORECASE)
+        if not asin_match:
+            asin_match = re.search(r'/([B0-9][A-Z0-9]{9})(?:[/?#]|$)', final_url, re.IGNORECASE)
+
+        if asin_match:
+            asin = asin_match.group(1).upper()
+            # CDN oficial de Amazon para imágenes directas en máxima resolución
+            return f"https://images-na.ssl-images-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
+    except Exception:
+        pass
+    return None
 
 
 @app.route(f"/{TOKEN}", methods=["POST"])
@@ -79,32 +104,16 @@ def webhook():
             pvp = datos.get("pvp", "69.99")
             price = datos.get("price", "0")
             link = datos.get("link", "")
-            store = datos.get("store", "Tienda")
             image_url = datos.get("image_url", "")
             desc = datos.get("description", "")
             tagline = datos.get("tagline", "")
             game_desc = datos.get("game_description", "")
 
-            # NUEVO: Intentar extraer imagen de la web (Amazon u otras) si Groq no la devuelve
-            if (not image_url or not image_url.startswith("http")) and link.startswith("http"):
-                try:
-                    headers_web = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                    r_web = requests.get(link, headers=headers_web, timeout=5)
-                    # Buscamos la etiqueta og:image general
-                    m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', r_web.text, re.IGNORECASE)
-                    if m_og:
-                        image_url = m_og.group(1)
-                    else:
-                        m_og2 = re.search(r'<meta[^>]*content=[\'"](http[^\'"]+)[\'"][^>]*property=[\'"]og:image[\'"]', r_web.text, re.IGNORECASE)
-                        if m_og2:
-                            image_url = m_og2.group(1)
-                        elif "amazon" in link:
-                            # Fallback específico para sacar la foto en alta resolución de Amazon
-                            m_amz = re.search(r'"large":"(https://m\.media-amazon\.com/images/I/[^"]+\.jpg)"', r_web.text)
-                            if m_amz:
-                                image_url = m_amz.group(1)
-                except Exception:
-                    pass
+            # Intento de extracción de imagen por CDN si el enlace es de Amazon
+            if "amazon" in link or "amzn" in link:
+                img_amazon = obtener_imagen_amazon(link)
+                if img_amazon:
+                    image_url = img_amazon
 
             hashtags_raw = datos.get("hashtags", [])
             if isinstance(hashtags_raw, str):
@@ -112,17 +121,12 @@ def webhook():
             hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags_raw if h][:4]
             hashtags_line = " ".join(hashtags)
 
-            # Inyección automática de link de afiliado para Instant Gaming (se queda interno por si lo usas más adelante, aunque no se imprima)
-            if "instant-gaming.com" in link and "igr=" not in link:
-                link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
-
-            # Construimos el texto del mensaje (SIN EL ENLACE AL FINAL)
+            # Construcción del texto (sin enlace)
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if tagline:
                 mensaje_final += f"_{tagline}_\n"
             if game_desc:
-                mensaje_final += f"{game_desc}\n"
-            mensaje_final += "\n"
+                mensaje_final += f"{game_desc}\n\n"
 
             if desc:
                 mensaje_final += f"{desc}\n\n"
@@ -135,7 +139,7 @@ def webhook():
 
             res = None
 
-            # Si logramos extraer la imagen, se manda como foto con el texto abajo.
+            # Si tenemos URL de imagen válida, la envía como FOTO con el texto adjunto abajo
             if image_url and image_url.startswith("http"):
                 caption = mensaje_final
                 if len(caption) > 1024:
@@ -143,13 +147,14 @@ def webhook():
 
                 res = send_photo(CHANNEL_ID, image_url, caption=caption)
 
+                # Si falla el envío de la foto, envía como mensaje de texto
                 if res.status_code != 200:
                     res = send_message(CHANNEL_ID, mensaje_final)
             else:
                 res = send_message(CHANNEL_ID, mensaje_final)
 
             if res.status_code == 200:
-                send_message(chat_id, "✅ **¡Procesado con imagen adjunta y publicado!**")
+                send_message(chat_id, "✅ **¡Procesado con imagen de Amazon y publicado!**")
             else:
                 err = res.json().get("description", "Error desconocido")
                 send_message(chat_id, f"❌ Error de envío al canal: `{err}`")
