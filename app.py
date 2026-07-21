@@ -4,97 +4,110 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-# Configuración del bot
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-CHANNEL_ID = "-1004359686735"  # Tu canal privado
+CHANNEL_ID = "-1004359686735"
 
 
 @app.route(f"/{TOKEN}", methods=["POST"])
-def receive_message():
-  update = request.get_json()
+def webhook():
+  data = request.get_json()
 
-  if "message" in update and "text" in update["message"]:
-    chat_id = update["message"]["chat"]["id"]
-    text = update["message"]["text"]
+  if "message" in data and "text" in data["message"]:
+    chat_id = data["message"]["chat"]["id"]
+    text = data["message"]["text"]
 
     try:
-      # Separar el mensaje enviado por '|'
       parts = [p.strip() for p in text.split("|")]
 
       if len(parts) >= 5:
-        game_title = parts[0]
+        title = parts[0]
         pvp = parts[1]
         price = parts[2]
         link = parts[3]
         store = parts[4]
 
-        # Si pasas un sexto elemento, se usa como texto/descripción personalizada.
-        # Si no lo pasas, usa una frase predeterminada.
-        description = (
-            parts[5]
-            if len(parts) > 5
-            else "¡Hazte con él ahora a este precio de derribo!"
-        )
+        # Comprobar si la 6ª posición es una URL de imagen
+        image_url = None
+        desc = "¡Hazte con él ahora a este precio de derribo!"
 
-        # Construir la plantilla formateada
-        formatted_message = f"""¡LA AVENTURA CONTINÚA: {game_title.upper()}! 🗡️✨
-{description}
+        if len(parts) > 5:
+          if parts[5].startswith("http://") or parts[5].startswith("https://"):
+            image_url = parts[5]
+            if len(parts) > 6:
+              desc = parts[6]
+          else:
+            desc = parts[5]
 
-❌ PVP: {pvp}€
+        # Plantilla formateada en Markdown
+        mensaje = f"""¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨
 
-✅ Save On Games: {price}€
+{desc}
 
-🔗 {link}
-📍 {store}"""
+❌ **PVP:** {pvp}€
+✅ **Save On Games:** {price}€
 
-        # 1. Enviar el mensaje formateado al canal
-        url_send = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        payload_channel = {
-            "chat_id": CHANNEL_ID,
-            "text": formatted_message,
-            "disable_web_page_preview": False,
-        }
-        res = requests.post(url_send, json=payload_channel)
+🔗 [Comprar en {store}]({link})"""
 
-        # 2. Responder al chat privado confirmando el estado del envío
-        if res.status_code == 200:
-          payload_user = {
-              "chat_id": chat_id,
-              "text": (
-                  "✅ **¡Publicado con éxito en el canal!**\n\n"
-                  + formatted_message
-              ),
+        # Enviar con foto si hay imagen URL, o solo texto si no la hay
+        if image_url:
+          url_api = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+          payload_channel = {
+              "chat_id": CHANNEL_ID,
+              "photo": image_url,
+              "caption": mensaje,
               "parse_mode": "Markdown",
           }
-          requests.post(url_send, json=payload_user)
+        else:
+          url_api = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+          payload_channel = {
+              "chat_id": CHANNEL_ID,
+              "text": mensaje,
+              "parse_mode": "Markdown",
+              "disable_web_page_preview": False,
+          }
+
+        res = requests.post(url_api, json=payload_channel)
+
+        # Confirmación al chat privado
+        url_reply = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        if res.status_code == 200:
+          requests.post(
+              url_reply,
+              json={
+                  "chat_id": chat_id,
+                  "text": "✅ **¡Publicado con éxito en el canal!**",
+                  "parse_mode": "Markdown",
+              },
+          )
         else:
           err_msg = res.json().get("description", "Error desconocido")
-          payload_user = {
-              "chat_id": chat_id,
-              "text": f"❌ **Error al publicar en el canal:**\n`{err_msg}`",
-              "parse_mode": "Markdown",
-          }
-          requests.post(url_send, json=payload_user)
+          requests.post(
+              url_reply,
+              json={
+                  "chat_id": chat_id,
+                  "text": f"❌ **Error:** `{err_msg}`",
+                  "parse_mode": "Markdown",
+              },
+          )
 
       else:
-        # Aviso en caso de formato incorrecto
-        payload_user = {
-            "chat_id": chat_id,
-            "text": (
-                "⚠️ **Formato incorrecto.**\n\nDebes enviar:\n`Título | PVP |"
-                " Oferta | Link | Tienda`\n\n*(Opcional: añade `| Descripción`"
-                " al final)*"
-            ),
-            "parse_mode": "Markdown",
-        }
-        requests.post(url_send, json=payload_user)
+        requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": (
+                    "⚠️ **Formato:** `Título | PVP | Oferta | Link | Tienda |"
+                    " [URL_Imagen] | [Descripción]`"
+                ),
+                "parse_mode": "Markdown",
+            },
+        )
 
     except Exception as e:
-      print(f"Error procesando el mensaje: {e}")
+      print(f"Error: {e}")
 
   return "OK", 200
 
 
 if __name__ == "__main__":
   app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
