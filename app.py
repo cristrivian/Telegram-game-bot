@@ -23,10 +23,10 @@ def webhook():
             return "OK", 200
 
         try:
-            # 1. Petición DIRECTA a la API de Gemini (sin librerías conflictivas)
+            # Petición directa a la API de Gemini usando gemini-pro
             prompt = f"""
             Analiza el siguiente mensaje de oferta y extrae la información. 
-            Devuelve ÚNICAMENTE un objeto JSON válido (sin formato markdown) con estas claves:
+            Devuelve ÚNICAMENTE un objeto JSON válido (sin formato markdown, sin comillas invertidas) con estas claves exactas:
             - "title": Nombre del producto.
             - "pvp": Precio original sin símbolos. Si no hay, pon "0".
             - "price": Precio de oferta sin símbolos.
@@ -38,7 +38,7 @@ def webhook():
             {text}
             """
             
-            url_gemini = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+            url_gemini = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_KEY}"
             gemini_payload = {
                 "contents": [{"parts": [{"text": prompt}]}]
             }
@@ -69,11 +69,11 @@ def webhook():
             store = datos.get("store", "Tienda")
             desc = datos.get("description", "")
 
-            # Inyección de link de afiliado
+            # Inyección automática de link de afiliado para Instant Gaming
             if "instant-gaming.com" in link and "igr=" not in link:
                 link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
 
-            # 2. Construimos el mensaje de Telegram
+            # Construimos el mensaje de Telegram
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if desc:
                 mensaje_final += f"{desc}\n\n"
@@ -84,7 +84,7 @@ def webhook():
             mensaje_final += f"✅ **Save On Games:** {price}€\n\n"
             mensaje_final += f"🔗 [Comprar en {store}]({link})"
 
-            # 3. Publicar en tu canal privado
+            # Publicar en el canal privado
             res = requests.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
                 json={
