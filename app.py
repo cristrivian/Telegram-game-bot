@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = "-1004359686735"
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_KEY = os.environ.get("GROQ_API_KEY")
 
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
@@ -17,48 +17,41 @@ def webhook():
         chat_id = data["message"]["chat"]["id"]
         text = data["message"]["text"]
 
-        if not GEMINI_KEY:
+        if not GROQ_KEY:
             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                          json={"chat_id": chat_id, "text": "Falta la variable GEMINI_API_KEY en Render."})
+                          json={"chat_id": chat_id, "text": "Falta la variable GROQ_API_KEY en Render."})
             return "OK", 200
 
         try:
-            # Petición directa usando la versión v1 y gemini-1.5-flash
-            prompt = f"""
-            Analiza el siguiente mensaje de oferta y extrae la información. 
-            Devuelve ÚNICAMENTE un objeto JSON válido (sin formato markdown, sin comillas invertidas) con estas claves exactas:
-            - "title": Nombre del producto.
-            - "pvp": Precio original sin símbolos. Si no hay, pon "0".
-            - "price": Precio de oferta sin símbolos.
-            - "link": Enlace de compra principal (ignora reviews/YouTube).
-            - "store": Nombre de la tienda (AliExpress, Amazon, etc.).
-            - "description": Cualquier detalle clave muy breve (envío, cupón). Vacío si no hay.
-            
-            Mensaje:
-            {text}
-            """
-            
-            url_gemini = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
-            gemini_payload = {
-                "contents": [{"parts": [{"text": prompt}]}]
+            # Petición a la API gratuita y ultrarrápida de Groq
+            url_groq = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {GROQ_KEY}",
+                "Content-Type": "application/json"
             }
             
-            gemini_req = requests.post(url_gemini, json=gemini_payload)
+            payload = {
+                "model": "llama-3.3-70b-specdec",
+                "messages": [
+                    {
+                        "role": "system", 
+                        "content": "Eres un asistente experto en analizar ofertas de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original sin símbolos, o '0'), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora links de youtube o reviews), store (tienda deducida), description (detalle breve o cupón, o vacío si no hay)."
+                    },
+                    {
+                        "role": "user", 
+                        "content": text
+                    }
+                ],
+                "response_format": {"type": "json_object"}
+            }
             
-            if gemini_req.status_code != 200:
-                raise Exception(f"Error HTTP API: {gemini_req.text}")
+            groq_req = requests.post(url_groq, json=payload, headers=headers)
             
-            datos_gemini = gemini_req.json()
-            try:
-                respuesta_ia = datos_gemini['candidates'][0]['content']['parts'][0]['text'].strip()
-            except KeyError:
-                raise Exception(f"Gemini no devolvió texto válido: {datos_gemini}")
+            if groq_req.status_code != 200:
+                raise Exception(f"Error HTTP Groq: {groq_req.text}")
             
-            # Limpieza del texto por si la IA añade etiquetas Markdown
-            if respuesta_ia.startswith("```json"):
-                respuesta_ia = respuesta_ia[7:-3]
-            elif respuesta_ia.startswith("```"):
-                respuesta_ia = respuesta_ia[3:-3]
+            datos_groq = groq_req.json()
+            respuesta_ia = datos_groq['choices'][0]['message']['content'].strip()
             
             datos = json.loads(respuesta_ia)
             
@@ -97,7 +90,7 @@ def webhook():
 
             if res.status_code == 200:
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                              json={"chat_id": chat_id, "text": "✅ **¡Procesado con IA y publicado!**", "parse_mode": "Markdown"})
+                              json={"chat_id": chat_id, "text": "✅ **¡Procesado con Groq y publicado!**", "parse_mode": "Markdown"})
             else:
                 err = res.json().get("description", "Error desconocido")
                 requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
