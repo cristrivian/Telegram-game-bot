@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Multitienda: Enlace visible solo para Steam
+# Forzar compilación limpia - Corrección de ruido (berrako), PVP numérico e imágenes AliExpress
 import os
 import json
 import re
@@ -59,14 +59,30 @@ def obtener_imagen_amazon(link):
 # BLOQUE 2: FUNCIONES ALIEXPRESS
 # ==========================================
 def obtener_imagen_aliexpress(link):
-    """Sigue el enlace de AliExpress y extrae la imagen principal del producto (og:image)."""
+    """Mejora la extracción de imagen de AliExpress buscando en metadatos y código interno."""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        res = requests.get(link, headers=headers, allow_redirects=True, timeout=7)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+            "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"
+        }
+        res = requests.get(link, headers=headers, allow_redirects=True, timeout=8)
+        html = res.text
         
-        m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', res.text, re.IGNORECASE)
+        # Intento 1: Etiqueta clásica og:image
+        m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', html, re.IGNORECASE)
         if m_og:
             return m_og.group(1)
+            
+        # Intento 2: Buscar variable de imagen en el JSON interno de AliExpress
+        m_json = re.search(r'"imagePath":"(https://ae01\.alicdn\.com/kf/[^"]+)"', html)
+        if m_json:
+            return m_json.group(1)
+            
+        # Intento 3: Búsqueda bruta de cualquier imagen grande en la CDN de AliExpress
+        m_cdn = re.search(r'(https://ae01\.alicdn\.com/kf/[a-zA-Z0-9_-]+\.(?:jpg|png))', html)
+        if m_cdn:
+            return m_cdn.group(1)
+
     except Exception:
         pass
     return None
@@ -106,12 +122,13 @@ def webhook():
                 "Content-Type": "application/json"
             }
 
+            # PROMPT MEJORADO: Restricciones de PVP y limpieza de ruido
             payload = {
                 "model": "llama-3.1-8b-instant",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Eres un asistente experto en analizar ofertas de Telegram sobre videojuegos. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original: si el texto lo indica, ponlo; si no lo indica, estima y pon el precio original de lanzamiento más probable que tuvo el juego cuando salió al mercado, por ejemplo 59.99 o 69.99 en lugar de 0), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (detalle breve o cupón, o vacío si no hay), tagline (un título gancho corto y llamativo relacionado con el juego, en español, máximo 8 palabras, distinto del nombre del juego), game_description (una descripción breve y atractiva de qué trata el juego, en español, máximo 25 palabras), hashtags (un array de exactamente 3 o 4 hashtags en español o inglés relacionados específicamente con ese juego -género, saga, plataforma, etc-, cada uno empezando por # y sin espacios)."
+                        "content": "Eres un asistente experto en analizar ofertas de Telegram sobre videojuegos. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original de lanzamiento. DEBE ser un NÚMERO, ej: 59.99 o 69.99. NUNCA uses palabras como 'indicado'. Si el texto no lo indica, inventa el precio de salida más realista en formato numérico), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (Solo detalles técnicos RELEVANTES, códigos o cupones. OMITE y ELIMINA CUALQUIER palabra coloquial, ruido, saludos o palabras raras como 'berrako', déjalo vacío si no hay nada útil), tagline (un título gancho corto y llamativo relacionado con el juego, en español, máximo 8 palabras, distinto del nombre del juego), game_description (una descripción breve y atractiva de qué trata el juego, en español, máximo 25 palabras), hashtags (un array de exactamente 3 o 4 hashtags en español o inglés relacionados específicamente con ese juego, cada uno empezando por # y sin espacios)."
                     },
                     {
                         "role": "user",
@@ -141,7 +158,7 @@ def webhook():
             game_desc = datos.get("game_description", "")
 
             # ==========================================
-            # ENRUTADOR DE TIENDAS (Detección de Bloques)
+            # ENRUTADOR DE TIENDAS
             # ==========================================
             if "amazon" in link or "amzn" in link:
                 img_amazon = obtener_imagen_amazon(link)
@@ -158,11 +175,9 @@ def webhook():
                 if img_steam:
                     image_url = img_steam
 
-            # Inyección automática de link de afiliado para Instant Gaming 
             if "instant-gaming.com" in link and "igr=" not in link:
                 link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
 
-            # Formateo de Hashtags
             hashtags_raw = datos.get("hashtags", [])
             if isinstance(hashtags_raw, str):
                 hashtags_raw = hashtags_raw.split()
@@ -176,13 +191,13 @@ def webhook():
             if game_desc:
                 mensaje_final += f"{game_desc}\n\n"
 
-            if desc:
+            if desc and desc.lower() not in ["", "null", "none"]:
                 mensaje_final += f"{desc}\n\n"
 
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
             mensaje_final += f"✅ **Save On Games:** {price}€"
 
-            # NUEVO: Si la tienda es Steam, añadimos el enlace al final.
+            # Enlace visible solo para Steam
             if "steampowered" in link or "steam" in link:
                 mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
 
