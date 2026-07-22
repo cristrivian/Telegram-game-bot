@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Corrección de ruido (berrako), PVP numérico e imágenes AliExpress
+# Forzar compilación limpia - Bloques estancos (Amazon y Steam devuelven enlace)
 import os
 import json
 import re
@@ -68,17 +68,14 @@ def obtener_imagen_aliexpress(link):
         res = requests.get(link, headers=headers, allow_redirects=True, timeout=8)
         html = res.text
         
-        # Intento 1: Etiqueta clásica og:image
         m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', html, re.IGNORECASE)
         if m_og:
             return m_og.group(1)
             
-        # Intento 2: Buscar variable de imagen en el JSON interno de AliExpress
         m_json = re.search(r'"imagePath":"(https://ae01\.alicdn\.com/kf/[^"]+)"', html)
         if m_json:
             return m_json.group(1)
             
-        # Intento 3: Búsqueda bruta de cualquier imagen grande en la CDN de AliExpress
         m_cdn = re.search(r'(https://ae01\.alicdn\.com/kf/[a-zA-Z0-9_-]+\.(?:jpg|png))', html)
         if m_cdn:
             return m_cdn.group(1)
@@ -122,7 +119,6 @@ def webhook():
                 "Content-Type": "application/json"
             }
 
-            # PROMPT MEJORADO: Restricciones de PVP y limpieza de ruido
             payload = {
                 "model": "llama-3.1-8b-instant",
                 "messages": [
@@ -158,7 +154,7 @@ def webhook():
             game_desc = datos.get("game_description", "")
 
             # ==========================================
-            # ENRUTADOR DE TIENDAS
+            # ENRUTADOR DE TIENDAS (Manejo de Imágenes)
             # ==========================================
             if "amazon" in link or "amzn" in link:
                 img_amazon = obtener_imagen_amazon(link)
@@ -184,7 +180,9 @@ def webhook():
             hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags_raw if h][:4]
             hashtags_line = " ".join(hashtags)
 
-            # Construcción del texto principal
+            # ==========================================
+            # CONSTRUCCIÓN DEL MENSAJE (Estructura Base)
+            # ==========================================
             mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
             if tagline:
                 mensaje_final += f"_{tagline}_\n"
@@ -197,10 +195,29 @@ def webhook():
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
             mensaje_final += f"✅ **Save On Games:** {price}€"
 
-            # Enlace visible solo para Steam
-            if "steampowered" in link or "steam" in link:
+            # ==========================================
+            # INSERCIÓN DE ENLACES (Bloques Estancos)
+            # ==========================================
+            if "amazon" in link or "amzn" in link:
+                # Bloque AMAZON: Ahora SÍ muestra el enlace
+                mensaje_final += f"\n\n🔗 [Comprar en Amazon]({link})"
+                
+            elif "steampowered" in link or "steam" in link:
+                # Bloque STEAM: Muestra el enlace
                 mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
+                
+            elif "aliexpress" in link or "ali." in link:
+                # Bloque ALIEXPRESS: Se mantiene sin mostrar enlace
+                pass 
+            
+            else:
+                # TIENDAS GENÉRICAS: Si metes otra web, sí muestra enlace por defecto
+                if link:
+                    mensaje_final += f"\n\n🔗 [Comprar aquí]({link})"
 
+            # ==========================================
+            # INSERCIÓN DE HASHTAGS
+            # ==========================================
             if hashtags_line:
                 mensaje_final += f"\n\n{hashtags_line}"
 
