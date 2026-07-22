@@ -1,8 +1,10 @@
-# Forzar compilación limpia - Bloques estancos (AliExpress con enlace e imagen mejorada)
+# Forzar compilación limpia - API Oficial de AliExpress integrada
 import os
 import json
 import re
 import requests
+import hashlib
+from datetime import datetime
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -56,47 +58,76 @@ def obtener_imagen_amazon(link):
 
 
 # ==========================================
-# BLOQUE 2: FUNCIONES ALIEXPRESS (MODIFICADO)
+# BLOQUE 2: FUNCIONES ALIEXPRESS (MODIFICADO - API)
 # ==========================================
+ALIEXPRESS_APP_KEY = "538466"
+ALIEXPRESS_APP_SECRET = "zL2n8PUyUeLoTXxODzyUsdRksnlEflbQ"
+ALIEXPRESS_TRACKING_ID = "Chollosgaming"
+
 def obtener_imagen_aliexpress(link):
-    """Mejora agresiva para saltar el anti-bot de AliExpress y extraer la imagen."""
+    """Usa la API oficial de AliExpress para extraer la imagen sin bloqueos."""
     try:
-        # Cabeceras más realistas para evitar el bloqueo 403 / JS Challenge
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
-            "Upgrade-Insecure-Requests": "1"
-        }
-        
-        # Desacortar enlace para llegar a la URL final del producto
+        # 1. Desacortar enlace para llegar a la URL final y sacar el ID
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         final_url = link
         if "a.aliexpress.com" in link or "ali." in link:
             res_head = requests.head(link, headers=headers, allow_redirects=True, timeout=5)
             final_url = res_head.url
 
-        res = requests.get(final_url, headers=headers, timeout=8)
-        html = res.text
-        
-        # Intento 1: Meta etiquetas (og:image o twitter:image)
-        m_og = re.search(r'<meta\s+(?:property|name)=[\'"](?:og:image|twitter:image)[\'"]\s+content=[\'"]([^\'"]+)[\'"]', html, re.IGNORECASE)
-        if m_og:
-            # Limpiar miniaturas para obtener tamaño completo si es posible
-            url_img = m_og.group(1)
-            return url_img.replace('_220x220.jpg', '').replace('_220x220xz.jpg', '')
+        # 2. Extraer ID del producto de la URL
+        m_id = re.search(r'/item/(\d+)\.html', final_url)
+        if not m_id:
+            # Búsqueda genérica de un ID de producto (suelen tener entre 11 y 16 dígitos en la URL)
+            m_id = re.search(r'(?:/|_|-)(\d{11,16})(?:\.|\?|/|$)', final_url)
             
-        # Intento 2: JSON interno de la web (imagePath)
-        m_json = re.search(r'"imagePath":"(https://[^"]+\.(?:jpg|png|webp))"', html)
-        if m_json:
-            return m_json.group(1)
+        if not m_id:
+            return None
             
-        # Intento 3: Buscar a la fuerza cualquier imagen de la CDN de AliExpress
-        m_cdn = re.search(r'(https://ae01\.alicdn\.com/kf/[a-zA-Z0-9_-]+\.(?:jpg|png|webp))', html)
-        if m_cdn:
-            return m_cdn.group(1)
+        product_id = m_id.group(1)
 
+        # 3. Preparar llamada a la API (Taobao Open Platform)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        params = {
+            "method": "aliexpress.affiliate.productdetail.get",
+            "app_key": ALIEXPRESS_APP_KEY,
+            "sign_method": "md5",
+            "timestamp": timestamp,
+            "format": "json",
+            "v": "2.0",
+            "product_ids": product_id,
+            "target_currency": "EUR",
+            "target_language": "ES",
+            "tracking_id": ALIEXPRESS_TRACKING_ID
+        }
+        
+        # Generar firma MD5 exigida por la API
+        sorted_keys = sorted(params.keys())
+        sign_str = ALIEXPRESS_APP_SECRET
+        for key in sorted_keys:
+            sign_str += key + str(params[key])
+        sign_str += ALIEXPRESS_APP_SECRET
+        
+        sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
+        params["sign"] = sign
+        
+        # Hacer petición oficial a la API
+        url_api = "https://api-sg.aliexpress.com/sync"
+        res_api = requests.post(url_api, data=params, timeout=10)
+        datos_api = res_api.json()
+        
+        # 4. Extraer imagen del JSON de respuesta
+        try:
+            product = datos_api['aliexpress_affiliate_productdetail_get_response']['resp_result']['result']['products']['product'][0]
+            img_url = product.get('product_main_image_url')
+            if img_url:
+                return img_url
+        except KeyError:
+            pass
+            
     except Exception:
         pass
+        
     return None
 
 
@@ -222,7 +253,7 @@ def webhook():
                 mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
                 
             elif "aliexpress" in link or "ali." in link:
-                # Bloque ALIEXPRESS: AHORA SÍ DEVUELVE EL ENLACE
+                # Bloque ALIEXPRESS
                 mensaje_final += f"\n\n🔗 [Comprar en AliExpress]({link})"
             
             else:
