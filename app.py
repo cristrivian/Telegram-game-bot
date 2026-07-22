@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Versión optimizada: Amazon y Steam
+# Forzar compilación limpia - Descripciones y títulos dinámicos estilo Copywriting
 import os
 import json
 import re
@@ -89,12 +89,13 @@ def webhook():
                 "Content-Type": "application/json"
             }
 
+            # PROMPT TOTALMENTE RENOVADO PARA COPYWRITING
             payload = {
                 "model": "llama-3.1-8b-instant",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Eres un asistente experto en analizar ofertas de Telegram sobre videojuegos. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni bloques de código) con estas claves exactas: title (nombre del producto limpio), pvp (precio original de lanzamiento. DEBE ser un NÚMERO, ej: 59.99 o 69.99. NUNCA uses palabras como 'indicado'. Si el texto no lo indica, inventa el precio de salida más realista en formato numérico), price (precio de oferta sin símbolos), link (enlace de compra principal, ignora youtube), store (tienda deducida), image_url (enlace directo a la imagen o carátula oficial del juego que aparezca en el texto, o vacío si no hay), description (Solo detalles técnicos RELEVANTES, códigos o cupones. OMITE y ELIMINA CUALQUIER palabra coloquial, ruido, saludos o palabras raras como 'berrako', déjalo vacío si no hay nada útil), tagline (un título gancho corto y llamativo relacionado con el juego, en español, máximo 8 palabras, distinto del nombre del juego), game_description (una descripción breve y atractiva de qué trata el juego, en español, máximo 25 palabras), hashtags (un array de exactamente 3 o 4 hashtags en español o inglés relacionados específicamente con ese juego, cada uno empezando por # y sin espacios)."
+                        "content": "Eres un asistente experto en redactar ofertas irresistibles de videojuegos para un canal de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown) con estas claves: header (El título principal del mensaje, TODO EN MAYÚSCULAS. Debe ser un gancho muy llamativo, original y relacionado con la temática del juego, incluyendo el nombre del juego y 2 o 3 emojis al final. Ej: '¡OFERTAZO! FINAL FANTASY I-VI PARA SWITCH ⚔️🔮' o '¡PREPARA TU NAVE PARA LA AVENTURA CON ASSASSIN'S CREED IV! 🏴‍☠️⚓'), title (nombre del producto limpio), pvp (precio original de lanzamiento. DEBE ser NÚMERO. Si no lo indica, inventa el más realista), price (precio de oferta sin símbolos), link (enlace de compra principal), store (tienda deducida), image_url (enlace a imagen, o vacío), description (Si en el texto hay códigos de descuento, ponlos aquí de forma llamativa, ej: '🎟️ Cupón: VSES02'. Si hay detalles de la edición, ponlos. Si no hay nada, vacío. OMITE cualquier saludo o palabra coloquial de origen), game_description (Una descripción atractiva, comercial y épica de qué trata el juego, destacando sus puntos fuertes para incentivar la compra. Entre 30 y 45 palabras), hashtags (array de 3 o 4 hashtags, empezando por #)."
                     },
                     {
                         "role": "user",
@@ -114,13 +115,14 @@ def webhook():
 
             datos = json.loads(respuesta_ia)
 
+            # Recogemos los nuevos campos
+            header = datos.get("header", f"¡CHOLLO GAMING: {datos.get('title', 'OFERTA').upper()}! 🎮🔥")
             title = datos.get("title", "CHOLLO GAMING")
             pvp = datos.get("pvp", "69.99")
             price = datos.get("price", "0")
             link = datos.get("link", "")
             image_url = datos.get("image_url", "")
             desc = datos.get("description", "")
-            tagline = datos.get("tagline", "")
             game_desc = datos.get("game_description", "")
 
             # ==========================================
@@ -146,17 +148,21 @@ def webhook():
             hashtags_line = " ".join(hashtags)
 
             # ==========================================
-            # CONSTRUCCIÓN DEL MENSAJE (Estructura Base)
+            # CONSTRUCCIÓN DEL MENSAJE (Estructura Dinámica)
             # ==========================================
-            mensaje_final = f"¡LA AVENTURA CONTINÚA: {title.upper()}! 🗡️✨\n"
-            if tagline:
-                mensaje_final += f"_{tagline}_\n"
+            
+            # 1. Título principal dinámico generado por la IA
+            mensaje_final = f"{header}\n"
+            
+            # 2. Descripción comercial del juego
             if game_desc:
                 mensaje_final += f"{game_desc}\n\n"
 
+            # 3. Cupones o detalles extra de la edición
             if desc and desc.lower() not in ["", "null", "none"]:
                 mensaje_final += f"{desc}\n\n"
 
+            # 4. Precios
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
             mensaje_final += f"✅ **Save On Games:** {price}€"
 
@@ -164,15 +170,12 @@ def webhook():
             # INSERCIÓN DE ENLACES (Bloques Estancos)
             # ==========================================
             if "amazon" in link or "amzn" in link:
-                # Bloque AMAZON
                 mensaje_final += f"\n\n🔗 [Comprar en Amazon]({link})"
                 
             elif "steampowered" in link or "steam" in link:
-                # Bloque STEAM
                 mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
             
             else:
-                # TIENDAS GENÉRICAS
                 if link:
                     mensaje_final += f"\n\n🔗 [Comprar aquí]({link})"
 
