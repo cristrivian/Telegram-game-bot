@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Bloques estancos (Amazon y Steam devuelven enlace)
+# Forzar compilación limpia - Bloques estancos (AliExpress con enlace e imagen mejorada)
 import os
 import json
 import re
@@ -32,7 +32,7 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
 
 
 # ==========================================
-# BLOQUE 1: FUNCIONES AMAZON
+# BLOQUE 1: FUNCIONES AMAZON (INTACTO)
 # ==========================================
 def obtener_imagen_amazon(link):
     """Obtiene la imagen de alta resolución de Amazon a través de su CDN usando el ASIN."""
@@ -56,27 +56,42 @@ def obtener_imagen_amazon(link):
 
 
 # ==========================================
-# BLOQUE 2: FUNCIONES ALIEXPRESS
+# BLOQUE 2: FUNCIONES ALIEXPRESS (MODIFICADO)
 # ==========================================
 def obtener_imagen_aliexpress(link):
-    """Mejora la extracción de imagen de AliExpress buscando en metadatos y código interno."""
+    """Mejora agresiva para saltar el anti-bot de AliExpress y extraer la imagen."""
     try:
+        # Cabeceras más realistas para evitar el bloqueo 403 / JS Challenge
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-            "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
+            "Upgrade-Insecure-Requests": "1"
         }
-        res = requests.get(link, headers=headers, allow_redirects=True, timeout=8)
+        
+        # Desacortar enlace para llegar a la URL final del producto
+        final_url = link
+        if "a.aliexpress.com" in link or "ali." in link:
+            res_head = requests.head(link, headers=headers, allow_redirects=True, timeout=5)
+            final_url = res_head.url
+
+        res = requests.get(final_url, headers=headers, timeout=8)
         html = res.text
         
-        m_og = re.search(r'<meta[^>]*property=[\'"]og:image[\'"][^>]*content=[\'"](http[^\'"]+)[\'"]', html, re.IGNORECASE)
+        # Intento 1: Meta etiquetas (og:image o twitter:image)
+        m_og = re.search(r'<meta\s+(?:property|name)=[\'"](?:og:image|twitter:image)[\'"]\s+content=[\'"]([^\'"]+)[\'"]', html, re.IGNORECASE)
         if m_og:
-            return m_og.group(1)
+            # Limpiar miniaturas para obtener tamaño completo si es posible
+            url_img = m_og.group(1)
+            return url_img.replace('_220x220.jpg', '').replace('_220x220xz.jpg', '')
             
-        m_json = re.search(r'"imagePath":"(https://ae01\.alicdn\.com/kf/[^"]+)"', html)
+        # Intento 2: JSON interno de la web (imagePath)
+        m_json = re.search(r'"imagePath":"(https://[^"]+\.(?:jpg|png|webp))"', html)
         if m_json:
             return m_json.group(1)
             
-        m_cdn = re.search(r'(https://ae01\.alicdn\.com/kf/[a-zA-Z0-9_-]+\.(?:jpg|png))', html)
+        # Intento 3: Buscar a la fuerza cualquier imagen de la CDN de AliExpress
+        m_cdn = re.search(r'(https://ae01\.alicdn\.com/kf/[a-zA-Z0-9_-]+\.(?:jpg|png|webp))', html)
         if m_cdn:
             return m_cdn.group(1)
 
@@ -86,7 +101,7 @@ def obtener_imagen_aliexpress(link):
 
 
 # ==========================================
-# BLOQUE 3: FUNCIONES STEAM
+# BLOQUE 3: FUNCIONES STEAM (INTACTO)
 # ==========================================
 def obtener_imagen_steam(link):
     """Extrae el ID del juego de la URL de Steam y obtiene la carátula oficial."""
@@ -199,19 +214,19 @@ def webhook():
             # INSERCIÓN DE ENLACES (Bloques Estancos)
             # ==========================================
             if "amazon" in link or "amzn" in link:
-                # Bloque AMAZON: Ahora SÍ muestra el enlace
+                # Bloque AMAZON
                 mensaje_final += f"\n\n🔗 [Comprar en Amazon]({link})"
                 
             elif "steampowered" in link or "steam" in link:
-                # Bloque STEAM: Muestra el enlace
+                # Bloque STEAM
                 mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
                 
             elif "aliexpress" in link or "ali." in link:
-                # Bloque ALIEXPRESS: Se mantiene sin mostrar enlace
-                pass 
+                # Bloque ALIEXPRESS: AHORA SÍ DEVUELVE EL ENLACE
+                mensaje_final += f"\n\n🔗 [Comprar en AliExpress]({link})"
             
             else:
-                # TIENDAS GENÉRICAS: Si metes otra web, sí muestra enlace por defecto
+                # TIENDAS GENÉRICAS
                 if link:
                     mensaje_final += f"\n\n🔗 [Comprar aquí]({link})"
 
