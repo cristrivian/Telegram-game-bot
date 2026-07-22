@@ -1,10 +1,8 @@
-# Forzar compilación limpia - API Oficial de AliExpress integrada
+# Forzar compilación limpia - Versión optimizada: Amazon y Steam
 import os
 import json
 import re
 import requests
-import hashlib
-from datetime import datetime
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -34,7 +32,7 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
 
 
 # ==========================================
-# BLOQUE 1: FUNCIONES AMAZON (INTACTO)
+# BLOQUE 1: FUNCIONES AMAZON
 # ==========================================
 def obtener_imagen_amazon(link):
     """Obtiene la imagen de alta resolución de Amazon a través de su CDN usando el ASIN."""
@@ -58,81 +56,7 @@ def obtener_imagen_amazon(link):
 
 
 # ==========================================
-# BLOQUE 2: FUNCIONES ALIEXPRESS (MODIFICADO - API)
-# ==========================================
-ALIEXPRESS_APP_KEY = "538466"
-ALIEXPRESS_APP_SECRET = "zL2n8PUyUeLoTXxODzyUsdRksnlEflbQ"
-ALIEXPRESS_TRACKING_ID = "Chollosgaming"
-
-def obtener_imagen_aliexpress(link):
-    """Usa la API oficial de AliExpress para extraer la imagen sin bloqueos."""
-    try:
-        # 1. Desacortar enlace para llegar a la URL final y sacar el ID
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        final_url = link
-        if "a.aliexpress.com" in link or "ali." in link:
-            res_head = requests.head(link, headers=headers, allow_redirects=True, timeout=5)
-            final_url = res_head.url
-
-        # 2. Extraer ID del producto de la URL
-        m_id = re.search(r'/item/(\d+)\.html', final_url)
-        if not m_id:
-            # Búsqueda genérica de un ID de producto (suelen tener entre 11 y 16 dígitos en la URL)
-            m_id = re.search(r'(?:/|_|-)(\d{11,16})(?:\.|\?|/|$)', final_url)
-            
-        if not m_id:
-            return None
-            
-        product_id = m_id.group(1)
-
-        # 3. Preparar llamada a la API (Taobao Open Platform)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        params = {
-            "method": "aliexpress.affiliate.productdetail.get",
-            "app_key": ALIEXPRESS_APP_KEY,
-            "sign_method": "md5",
-            "timestamp": timestamp,
-            "format": "json",
-            "v": "2.0",
-            "product_ids": product_id,
-            "target_currency": "EUR",
-            "target_language": "ES",
-            "tracking_id": ALIEXPRESS_TRACKING_ID
-        }
-        
-        # Generar firma MD5 exigida por la API
-        sorted_keys = sorted(params.keys())
-        sign_str = ALIEXPRESS_APP_SECRET
-        for key in sorted_keys:
-            sign_str += key + str(params[key])
-        sign_str += ALIEXPRESS_APP_SECRET
-        
-        sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
-        params["sign"] = sign
-        
-        # Hacer petición oficial a la API
-        url_api = "https://api-sg.aliexpress.com/sync"
-        res_api = requests.post(url_api, data=params, timeout=10)
-        datos_api = res_api.json()
-        
-        # 4. Extraer imagen del JSON de respuesta
-        try:
-            product = datos_api['aliexpress_affiliate_productdetail_get_response']['resp_result']['result']['products']['product'][0]
-            img_url = product.get('product_main_image_url')
-            if img_url:
-                return img_url
-        except KeyError:
-            pass
-            
-    except Exception:
-        pass
-        
-    return None
-
-
-# ==========================================
-# BLOQUE 3: FUNCIONES STEAM (INTACTO)
+# BLOQUE 2: FUNCIONES STEAM
 # ==========================================
 def obtener_imagen_steam(link):
     """Extrae el ID del juego de la URL de Steam y obtiene la carátula oficial."""
@@ -206,11 +130,6 @@ def webhook():
                 img_amazon = obtener_imagen_amazon(link)
                 if img_amazon:
                     image_url = img_amazon
-            
-            elif "aliexpress" in link or "ali." in link:
-                img_ali = obtener_imagen_aliexpress(link)
-                if img_ali:
-                    image_url = img_ali
                     
             elif "steampowered" in link or "steam" in link:
                 img_steam = obtener_imagen_steam(link)
@@ -251,10 +170,6 @@ def webhook():
             elif "steampowered" in link or "steam" in link:
                 # Bloque STEAM
                 mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
-                
-            elif "aliexpress" in link or "ali." in link:
-                # Bloque ALIEXPRESS
-                mensaje_final += f"\n\n🔗 [Comprar en AliExpress]({link})"
             
             else:
                 # TIENDAS GENÉRICAS
