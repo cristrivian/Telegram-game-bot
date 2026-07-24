@@ -1,4 +1,4 @@
-# Forzar compilación limpia - Descripciones y títulos dinámicos estilo Copywriting
+# Forzar compilación limpia - Extracción Amazon reforzada y Prompt sin cupones/ruido
 import os
 import json
 import re
@@ -37,15 +37,20 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
 def obtener_imagen_amazon(link):
     """Obtiene la imagen de alta resolución de Amazon a través de su CDN usando el ASIN."""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
         final_url = link
-        if "amzn." in link or "t.co" in link:
-            res = requests.head(link, headers=headers, allow_redirects=True, timeout=5)
+        
+        # Uso de GET con stream=True para seguir la redirección sin descargar todo el contenido
+        if "amzn." in link or "t.co" in link or "bit.ly" in link:
+            res = requests.get(link, headers=headers, allow_redirects=True, timeout=6, stream=True)
             final_url = res.url
 
-        asin_match = re.search(r'/(?:dp|gp/product|product)/([A-Z0-9]{10})', final_url, re.IGNORECASE)
+        # Expresión regular ampliada para capturar el ASIN (10 caracteres alfanuméricos)
+        asin_match = re.search(r'/(?:dp|gp/product|product|asin)/([A-Z0-9]{10})', final_url, re.IGNORECASE)
         if not asin_match:
-            asin_match = re.search(r'/([B0-9][A-Z0-9]{9})(?:[/?#]|$)', final_url, re.IGNORECASE)
+            asin_match = re.search(r'[/=]([B0-9][A-Z0-9]{9})(?:[/?#&]|$)', final_url, re.IGNORECASE)
 
         if asin_match:
             asin = asin_match.group(1).upper()
@@ -89,13 +94,13 @@ def webhook():
                 "Content-Type": "application/json"
             }
 
-            # PROMPT TOTALMENTE RENOVADO PARA COPYWRITING
+            # PROMPT LIMPIO: Sin menciones a cupones ni ruido
             payload = {
                 "model": "llama-3.1-8b-instant",
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Eres un asistente experto en redactar ofertas irresistibles de videojuegos para un canal de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown) con estas claves: header (El título principal del mensaje, TODO EN MAYÚSCULAS. Debe ser un gancho muy llamativo, original y relacionado con la temática del juego, incluyendo el nombre del juego y 2 o 3 emojis al final. Ej: '¡OFERTAZO! FINAL FANTASY I-VI PARA SWITCH ⚔️🔮' o '¡PREPARA TU NAVE PARA LA AVENTURA CON ASSASSIN'S CREED IV! 🏴‍☠️⚓'), title (nombre del producto limpio), pvp (precio original de lanzamiento. DEBE ser NÚMERO. Si no lo indica, inventa el más realista), price (precio de oferta sin símbolos), link (enlace de compra principal), store (tienda deducida), image_url (enlace a imagen, o vacío), description (Si en el texto hay códigos de descuento, ponlos aquí de forma llamativa, ej: '🎟️ Cupón: VSES02'. Si hay detalles de la edición, ponlos. Si no hay nada, vacío. OMITE cualquier saludo o palabra coloquial de origen), game_description (Una descripción atractiva, comercial y épica de qué trata el juego, destacando sus puntos fuertes para incentivar la compra. Entre 30 y 45 palabras), hashtags (array de 3 o 4 hashtags, empezando por #)."
+                        "content": "Eres un asistente experto en redactar ofertas irresistibles de videojuegos para un canal de Telegram. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown) con estas claves: header (El título principal del mensaje, TODO EN MAYÚSCULAS. Debe ser un gancho muy llamativo, original y relacionado con la temática del juego, incluyendo el nombre del juego y 2 o 3 emojis al final. Ej: '¡OFERTAZO! FINAL FANTASY I-VI PARA SWITCH ⚔️🔮' o '¡PREPARA TU NAVE PARA LA AVENTURA CON ASSASSIN'S CREED IV! 🏴‍☠️⚓'), title (nombre del producto limpio), pvp (precio original de lanzamiento. DEBE ser NÚMERO. Si no lo indica, inventa el más realista), price (precio de oferta sin símbolos), link (enlace de compra principal), store (tienda deducida), image_url (enlace a imagen si aparece en el texto, o vacío), description (Detalles relevantes de la edición o versión del juego si los hay. Si no hay nada, déjalo vacío. OMITE cualquier saludo o palabra coloquial), game_description (Una descripción atractiva, comercial y épica de qué trata el juego, destacando sus puntos fuertes para incentivar la compra. Entre 30 y 45 palabras), hashtags (array de 3 o 4 hashtags, empezando por #)."
                     },
                     {
                         "role": "user",
@@ -115,7 +120,6 @@ def webhook():
 
             datos = json.loads(respuesta_ia)
 
-            # Recogemos los nuevos campos
             header = datos.get("header", f"¡CHOLLO GAMING: {datos.get('title', 'OFERTA').upper()}! 🎮🔥")
             title = datos.get("title", "CHOLLO GAMING")
             pvp = datos.get("pvp", "69.99")
@@ -150,19 +154,14 @@ def webhook():
             # ==========================================
             # CONSTRUCCIÓN DEL MENSAJE (Estructura Dinámica)
             # ==========================================
-            
-            # 1. Título principal dinámico generado por la IA
             mensaje_final = f"{header}\n"
             
-            # 2. Descripción comercial del juego
             if game_desc:
                 mensaje_final += f"{game_desc}\n\n"
 
-            # 3. Cupones o detalles extra de la edición
             if desc and desc.lower() not in ["", "null", "none"]:
                 mensaje_final += f"{desc}\n\n"
 
-            # 4. Precios
             mensaje_final += f"❌ **PVP:** {pvp}€\n"
             mensaje_final += f"✅ **Save On Games:** {price}€"
 
