@@ -2,6 +2,7 @@ import os
 import re
 import urllib.parse
 import requests
+import time
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -30,47 +31,35 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
 
 
 # ==========================================
-# EXTRACTOR DE NOMBRES DESDE LA URL (Puro Python)
+# EXTRACTOR DE NOMBRES DESDE LA URL
 # ==========================================
 def extraer_nombre_url(link):
-    """Analiza el enlace para extraer un nombre de juego limpio."""
     try:
         parsed = urllib.parse.urlparse(link)
-        path = urllib.parse.unquote(parsed.path) # Decodifica caracteres como %20
+        path = urllib.parse.unquote(parsed.path) 
         
-        # Caso 1: Steam (ej: /app/374320/DARK_SOULS_III/)
         if "steampowered" in link or "steam" in link:
             match = re.search(r'/app/\d+/([^/]+)', path)
             if match:
-                nombre = match.group(1).replace('_', ' ')
-                return nombre.upper()
+                return match.group(1).replace('_', ' ').upper()
                 
-        # Caso 2: Instant Gaming (ej: /es/1234-comprar-juego-tomb-raider/)
         if "instant-gaming" in link:
             match = re.search(r'\d+-comprar-(?:juego-)?([^/]+)', path)
             if match:
-                nombre = match.group(1).replace('-', ' ')
-                return nombre.upper()
+                return match.group(1).replace('-', ' ').upper()
                 
-        # Caso 3: Amazon (Suele estar en la primera parte de la URL)
         if "amazon" in link or "amzn" in link:
             partes = [p for p in path.split('/') if p]
             if partes and "dp" not in partes[0] and len(partes[0]) > 5:
-                nombre = partes[0].replace('-', ' ')
-                return nombre.upper()
+                return partes[0].replace('-', ' ').upper()
 
-        # Caso genérico por si es otra tienda
         partes = [p for p in path.split('/') if p]
         if partes:
-            # Cogemos el último trozo de la URL que no parezca un código raro
             for p in reversed(partes):
                 if len(p) > 4 and not re.match(r'^[A-Z0-9]{10}$', p):
-                    nombre = re.sub(r'[-_]', ' ', p)
-                    return nombre.upper()
-
+                    return re.sub(r'[-_]', ' ', p).upper()
     except Exception:
         pass
-        
     return "CHOLLO GAMING"
 
 
@@ -118,80 +107,103 @@ def webhook():
         chat_id = data["message"]["chat"]["id"]
         text = data["message"]["text"]
 
-        try:
-            # 1. Extraer el enlace
-            enlaces = re.findall(r'(https?://[^\s]+)', text)
-            if not enlaces:
-                send_message(chat_id, "⚠️ **Falta el enlace.** Envía los dos precios y el enlace del juego.")
-                return "OK", 200
-            
-            link = enlaces[0]
-            
-            # 2. Extraer precios
-            texto_sin_link = text.replace(link, '')
-            numeros_encontrados = re.findall(r'\d+(?:[\.,]\d+)?', texto_sin_link)
-            
-            if len(numeros_encontrados) < 2:
-                send_message(chat_id, "⚠️ **Faltan precios.** Envía el precio antiguo y el nuevo (ej: 59.99 14.99).")
-                return "OK", 200
+        # Dividimos el mensaje completo en bloques usando las líneas en blanco
+        bloques = re.split(r'\n\s*\n', text.strip())
+        
+        ofertas_procesadas = 0
+        errores = []
 
-            # Convertir a flotantes
-            p1 = float(numeros_encontrados[0].replace(',', '.'))
-            p2 = float(numeros_encontrados[1].replace(',', '.'))
+        for i, bloque in enumerate(bloques, 1):
+            if not bloque.strip():
+                continue
 
-            # Asignar automáticamente el mayor como PVP y el menor como Oferta
-            precio_antiguo = max(p1, p2)
-            precio_nuevo = min(p1, p2)
-
-            # 3. Calcular porcentaje de descuento
-            descuento_str = ""
-            if precio_antiguo > precio_nuevo:
-                porcentaje = int(round(((precio_antiguo - precio_nuevo) / precio_antiguo) * 100))
-                descuento_str = f" (-{porcentaje}%)"
-
-            # 4. Obtener Nombre procesando la URL (Sin IA)
-            nombre = extraer_nombre_url(link)
-
-            # 5. Obtener imagen y procesar afiliados
-            image_url = None
-            if "instant-gaming.com" in link and "igr=" not in link:
-                link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
+            try:
+                # 1. Extraer el enlace de este bloque en concreto
+                enlaces = re.findall(r'(https?://[^\s]+)', bloque)
+                if not enlaces:
+                    continue  # Si escribes texto normal sin enlace, lo ignora
                 
-            if "amazon" in link or "amzn" in link:
-                image_url = obtener_imagen_amazon(link)
-            elif "steampowered" in link or "steam" in link:
-                image_url = obtener_imagen_steam(link)
+                link = enlaces[0]
+                
+                # 2. Extraer precios del bloque
+                texto_sin_link = bloque.replace(link, '')
+                numeros_encontrados = re.findall(r'\d+(?:[\.,]\d+)?', texto_sin_link)
+                
+                if len(numeros_encontrados) < 2:
+                    errores.append(f"⚠️ Oferta {i}: Faltan precios para el enlace {link}")
+                    continue
 
-            # 6. Montar mensaje final (Limpio y directo)
-            mensaje_final = f"🎮 **{nombre}**\n\n"
-            mensaje_final += f"❌ Precio original: {precio_antiguo:g}€\n"
-            mensaje_final += f"✅ **Save On Games:** {precio_nuevo:g}€{descuento_str}"
+                p1 = float(numeros_encontrados[0].replace(',', '.'))
+                p2 = float(numeros_encontrados[1].replace(',', '.'))
 
-            if "amazon" in link or "amzn" in link:
-                mensaje_final += f"\n\n🔗 [Comprar en Amazon]({link})"
-            elif "steampowered" in link or "steam" in link:
-                mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
-            else:
-                mensaje_final += f"\n\n🔗 [Comprar aquí]({link})"
+                precio_antiguo = max(p1, p2)
+                precio_nuevo = min(p1, p2)
 
-            # 7. Envío a Telegram
-            res = None
-            if image_url and image_url.startswith("http"):
-                caption = mensaje_final if len(mensaje_final) <= 1024 else mensaje_final[:1021] + "..."
-                res = send_photo(CHANNEL_ID, image_url, caption=caption)
-                if res.status_code != 200:
+                # 3. Calcular descuento
+                descuento_str = ""
+                if precio_antiguo > precio_nuevo:
+                    porcentaje = int(round(((precio_antiguo - precio_nuevo) / precio_antiguo) * 100))
+                    descuento_str = f" (-{porcentaje}%)"
+
+                # 4. Nombre
+                nombre = extraer_nombre_url(link)
+
+                # 5. Imagen y afiliados
+                image_url = None
+                if "instant-gaming.com" in link and "igr=" not in link:
+                    link += "?igr=gamer-a8c487" if "?" not in link else "&igr=gamer-a8c487"
+                    
+                if "amazon" in link or "amzn" in link:
+                    image_url = obtener_imagen_amazon(link)
+                elif "steampowered" in link or "steam" in link:
+                    image_url = obtener_imagen_steam(link)
+
+                # 6. Mensaje final
+                mensaje_final = f"🎮 **{nombre}**\n\n"
+                mensaje_final += f"❌ Precio original: {precio_antiguo:g}€\n"
+                mensaje_final += f"✅ **Save On Games:** {precio_nuevo:g}€{descuento_str}"
+
+                if "amazon" in link or "amzn" in link:
+                    mensaje_final += f"\n\n🔗 [Comprar en Amazon]({link})"
+                elif "steampowered" in link or "steam" in link:
+                    mensaje_final += f"\n\n🔗 [Comprar en Steam]({link})"
+                else:
+                    mensaje_final += f"\n\n🔗 [Comprar aquí]({link})"
+
+                # 7. Envío a Telegram
+                res = None
+                if image_url and image_url.startswith("http"):
+                    caption = mensaje_final if len(mensaje_final) <= 1024 else mensaje_final[:1021] + "..."
+                    res = send_photo(CHANNEL_ID, image_url, caption=caption)
+                    if res.status_code != 200:
+                        res = send_message(CHANNEL_ID, mensaje_final)
+                else:
                     res = send_message(CHANNEL_ID, mensaje_final)
-            else:
-                res = send_message(CHANNEL_ID, mensaje_final)
 
-            if res.status_code == 200:
-                send_message(chat_id, "✅ **¡Procesado y publicado correctamente!**")
-            else:
-                err = res.json().get("description", "Error desconocido")
-                send_message(chat_id, f"❌ Error de envío al canal: `{err}`")
+                if res.status_code == 200:
+                    ofertas_procesadas += 1
+                else:
+                    err = res.json().get("description", "Error desconocido")
+                    errores.append(f"❌ Error enviando oferta {i}: `{err}`")
 
-        except Exception as e:
-            send_message(chat_id, f"⚠️ **Error en el proceso:**\n`{str(e)}`")
+                # Pausa de medio segundo para no saturar a Telegram enviando 10 fotos a la vez
+                time.sleep(0.5)
+
+            except Exception as e:
+                errores.append(f"⚠️ Error procesando oferta {i}:\n`{str(e)}`")
+
+        # 8. Resumen final para ti en el bot privado
+        if ofertas_procesadas > 0:
+            msg_exito = f"✅ **¡{ofertas_procesadas} ofertas publicadas correctamente!**"
+            send_message(chat_id, msg_exito)
+        
+        if errores:
+            msg_error = "⚠️ **Resumen de problemas:**\n" + "\n".join(errores)
+            send_message(chat_id, msg_error)
+            
+        # Si el mensaje no tenía enlaces, avisamos
+        if ofertas_procesadas == 0 and not errores:
+            send_message(chat_id, "🤔 No encontré ninguna oferta válida con enlaces en ese mensaje.")
 
     return "OK", 200
 
