@@ -41,22 +41,31 @@ def obtener_info_juego_gemini(link):
         
         prompt = (
             f"Analiza este enlace de un videojuego: '{link}'. "
-            f"Devuelve ÚNICAMENTE un objeto JSON con dos claves:\n"
-            f"1. 'nombre': El nombre oficial, limpio y bien escrito del videojuego.\n"
-            f"2. 'descripcion': Una descripción corta, emocionante y comercial (máximo 30 palabras) en español que explique de qué trata el juego y anime a comprarlo. Sin emojis ni saludos."
+            f"Devuelve ÚNICAMENTE un objeto JSON válido con dos claves:\n"
+            f"1. 'nombre': El nombre oficial y limpio del videojuego.\n"
+            f"2. 'descripcion': Una descripción comercial y emocionante (máximo 30 palabras) en español que explique de qué trata el juego. Sin emojis."
         )
         
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json"}
+            "contents": [{"parts": [{"text": prompt}]}]
         }
         
-        res = requests.post(url, json=payload, headers=headers, timeout=8)
+        # Aumentamos el timeout a 15 segundos por si la API de Google va lenta
+        res = requests.post(url, json=payload, headers=headers, timeout=15)
+        
         if res.status_code == 200:
             datos = res.json()
             texto_json = datos["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(texto_json)
-    except Exception:
+            
+            # Limpiador mágico: Quita las comillas raras o bloques markdown de Gemini
+            texto_limpio = texto_json.replace("```json", "").replace("```", "").strip()
+            
+            return json.loads(texto_limpio)
+        else:
+            print(f"Error de Gemini HTTP: {res.text}")
+            
+    except Exception as e:
+        print(f"Excepción procesando Gemini: {e}")
         pass
         
     return {"nombre": "OFERTA GAMING", "descripcion": ""}
