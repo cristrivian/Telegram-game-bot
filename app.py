@@ -96,7 +96,7 @@ def webhook():
 
             # PROMPT LIMPIO: Sin menciones a cupones ni ruido
             payload = {
-                "model": "llama-3.1-8b-instant",
+                "model": "llama3-8b-8192", # <--- MODELO CORREGIDO PARA MAYOR ESTABILIDAD
                 "messages": [
                     {
                         "role": "system",
