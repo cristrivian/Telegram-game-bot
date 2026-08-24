@@ -1,6 +1,6 @@
 import os
 import re
-import json
+import urllib.parse
 import requests
 from flask import Flask, request
 
@@ -8,7 +8,6 @@ app = Flask(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID = "-1004359686735"
-GROQ_KEY = os.environ.get("GROQ_API_KEY")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{TOKEN}"
 
@@ -30,47 +29,49 @@ def send_photo(chat_id, photo_url, caption=None, parse_mode="Markdown"):
     return requests.post(f"{TELEGRAM_API}/sendPhoto", json=payload)
 
 
-def obtener_info_juego_groq(link):
-    """Groq deduce el nombre del juego a partir de la URL y redacta la sinopsis."""
-    if not GROQ_KEY:
-        return {"nombre": "CHOLLO GAMING", "descripcion": ""}
-    
+# ==========================================
+# EXTRACTOR DE NOMBRES DESDE LA URL (Puro Python)
+# ==========================================
+def extraer_nombre_url(link):
+    """Analiza el enlace para extraer un nombre de juego limpio."""
     try:
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_KEY}",
-            "Content-Type": "application/json"
-        }
+        parsed = urllib.parse.urlparse(link)
+        path = urllib.parse.unquote(parsed.path) # Decodifica caracteres como %20
         
-        payload = {
-            "model": "llama3-70b-8192", # Modelo robusto y estable de Groq
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Eres un experto en videojuegos. Debes devolver ÚNICAMENTE un objeto JSON válido (sin formato markdown ni explicaciones) con estas dos claves: 'nombre' (el nombre oficial y limpio del videojuego deducido de la URL) y 'descripcion' (Una descripción comercial y emocionante de máximo 30 palabras en español que explique de qué trata el juego. Sin emojis)."
-                },
-                {
-                    "role": "user",
-                    "content": f"Enlace del juego: {link}"
-                }
-            ],
-            "response_format": {"type": "json_object"} # Fuerza a que devuelva un JSON perfecto
-        }
-        
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
-        
-        if res.status_code == 200:
-            datos = res.json()
-            texto_json = datos['choices'][0]['message']['content'].strip()
-            return json.loads(texto_json)
-        else:
-            print(f"Error Groq HTTP: {res.text}")
-            
-    except Exception as e:
-        print(f"Excepción procesando Groq: {e}")
+        # Caso 1: Steam (ej: /app/374320/DARK_SOULS_III/)
+        if "steampowered" in link or "steam" in link:
+            match = re.search(r'/app/\d+/([^/]+)', path)
+            if match:
+                nombre = match.group(1).replace('_', ' ')
+                return nombre.upper()
+                
+        # Caso 2: Instant Gaming (ej: /es/1234-comprar-juego-tomb-raider/)
+        if "instant-gaming" in link:
+            match = re.search(r'\d+-comprar-(?:juego-)?([^/]+)', path)
+            if match:
+                nombre = match.group(1).replace('-', ' ')
+                return nombre.upper()
+                
+        # Caso 3: Amazon (Suele estar en la primera parte de la URL)
+        if "amazon" in link or "amzn" in link:
+            partes = [p for p in path.split('/') if p]
+            if partes and "dp" not in partes[0] and len(partes[0]) > 5:
+                nombre = partes[0].replace('-', ' ')
+                return nombre.upper()
+
+        # Caso genérico por si es otra tienda
+        partes = [p for p in path.split('/') if p]
+        if partes:
+            # Cogemos el último trozo de la URL que no parezca un código raro
+            for p in reversed(partes):
+                if len(p) > 4 and not re.match(r'^[A-Z0-9]{10}$', p):
+                    nombre = re.sub(r'[-_]', ' ', p)
+                    return nombre.upper()
+
+    except Exception:
         pass
         
-    return {"nombre": "OFERTA GAMING", "descripcion": ""}
+    return "CHOLLO GAMING"
 
 
 # ==========================================
@@ -148,10 +149,8 @@ def webhook():
                 porcentaje = int(round(((precio_antiguo - precio_nuevo) / precio_antiguo) * 100))
                 descuento_str = f" (-{porcentaje}%)"
 
-            # 4. Obtener Nombre y Descripción desde Groq pasando la URL
-            info_ia = obtener_info_juego_groq(link)
-            nombre = info_ia.get("nombre", "OFERTA GAMING")
-            game_desc = info_ia.get("descripcion", "")
+            # 4. Obtener Nombre procesando la URL (Sin IA)
+            nombre = extraer_nombre_url(link)
 
             # 5. Obtener imagen y procesar afiliados
             image_url = None
@@ -163,12 +162,8 @@ def webhook():
             elif "steampowered" in link or "steam" in link:
                 image_url = obtener_imagen_steam(link)
 
-            # 6. Montar mensaje final
-            mensaje_final = f"🎮 **{nombre.upper()}**\n\n"
-            
-            if game_desc:
-                mensaje_final += f"{game_desc}\n\n"
-                
+            # 6. Montar mensaje final (Limpio y directo)
+            mensaje_final = f"🎮 **{nombre}**\n\n"
             mensaje_final += f"❌ Precio original: {precio_antiguo:g}€\n"
             mensaje_final += f"✅ **Save On Games:** {precio_nuevo:g}€{descuento_str}"
 
