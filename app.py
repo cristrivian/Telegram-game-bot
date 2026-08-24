@@ -96,7 +96,7 @@ def webhook():
 
             # PROMPT LIMPIO: Sin menciones a cupones ni ruido
             payload = {
-                "model": "llama3-8b-8192", # <--- MODELO CORREGIDO PARA MAYOR ESTABILIDAD
+                "model": "mixtral-8x7b-32768", # <--- MODELO MIXTRAL ESTABLE
                 "messages": [
                     {
                         "role": "system",
